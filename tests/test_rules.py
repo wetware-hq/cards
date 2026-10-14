@@ -667,3 +667,44 @@ def test_flagged_fact_not_shown_as_checked():
     v = p.patient_view()
     assert v[v.index("penicillin") + 1] == LINES["FL-WRONG-ACTION-PT"] and LINES["FL-WRONG-DONE-PT"] in v
     assert v.count(LINES["SRC-CLINICIAN-PT"]) == 1
+
+
+# ---- safety-function mutants: pinned line tables, refusals change nothing ----
+def test_line_tables_pinned():
+    assert cards.ALERT_LINE == {"same_day": "CQ-SAMEDAY-ALERT", "before_procedure": "CQ-BEFORE-PROC"}
+    assert cards.PATIENT_ROUTE_LINE == {"same_day": "PV-SAMEDAY", "before_procedure": "PV-BEFORE-PROC"}
+    assert set(cards.SIGN_ONLY.values()) <= {"RF-SIGN-APPROVE", "RF-SIGN-ROUTE", "RF-SIGN-CLOSE", "RF-SIGN-LETTER"}
+    assert cards.SIGN_ONLY["approve"] == "RF-SIGN-APPROVE" and cards.SIGN_ONLY["set_route"] == "RF-SIGN-ROUTE" \
+        and cards.SIGN_ONLY["close"] == "RF-SIGN-CLOSE"
+
+
+def _snap(s):
+    return {k: v for k, v in vars(s).items() if k != "env"}, [r for r in s.env.log if r.get("event") != "CL-REFUSED"]
+
+
+def test_refused_open_changes_nothing():
+    for actor, aid, grant in (("agent", "SYNTH-AG-0001", "SYNTH-GR-0099"), ("clinician", "SYNTH-dr-01", None)):
+        s = env().session(actor, aid, grant)
+        before = _snap(s)
+        with pytest.raises(cards.Refused):
+            s.open(PATIENT)
+        assert _snap(s) == before and s.actor == actor
+    s = patient(env()); before = _snap(s)
+    with pytest.raises(cards.Refused):
+        s.open(PATIENT)
+    assert _snap(s) == before
+
+
+def test_refused_gate_changes_nothing():
+    for s, action in ((patient(env()), "send"), (agent(env()), "flag")):
+        before = _snap(s)
+        with pytest.raises(cards.Refused) as e:
+            s.step(action, field="allergies") if action == "flag" else s.step(action)
+        assert e.value.text == msg(e.value.line_id)
+        assert _snap(s) == before
+
+
+def test_ended_flag_alone_refuses():
+    s = patient(env()); s.ended = True
+    x = refused("RF-SESSION-ENDED", s.step, "view")
+    assert x.text == msg("RF-SESSION-ENDED")

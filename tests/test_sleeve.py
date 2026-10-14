@@ -118,3 +118,24 @@ def test_toml_card_round_trip():
                                   "categories": ["general"], "granted": "1934-01-02"}])
     c = cards.load(t)
     assert c["header"]["scope"] == ["read"] and "SYNTH-GR-0300" in c["grants"]
+
+
+def test_sleeve_refusals_carry_their_own_signed_text():
+    from messages import msg
+    h, sh = make()
+    cases = [lambda: sh.session("SYNTH-nobody", "patient", "SYNTH-P0101"),
+             lambda: sh.session("SYNTH-P0101", "clinician", "SYNTH-P0101", discipline="medicine"),
+             lambda: sh.session("SYNTH-dr-01", "clinician", "SYNTH-P0101", discipline="nursing")]
+    for fn in cases:
+        with pytest.raises(cards.Refused) as e:
+            fn()
+        assert e.value.text == msg(e.value.line_id)
+    a = sh.session("SYNTH-cagent-01", "clinician_agent", "SYNTH-P0101")
+    with pytest.raises(cards.Refused) as e:
+        a.step("EP", {"type": "approve"})
+    assert e.value.text == msg(e.value.line_id)
+    s = sleeve.Sleeve(FakeHarness(), env(), CARDS)
+    b = s.session("SYNTH-agent-01", "patient_agent", "SYNTH-P0101"); s.end("SYNTH-agent-01")
+    with pytest.raises(cards.Refused) as e:
+        b.observe("EP")
+    assert e.value.text == msg(e.value.line_id) and e.value.line_id == "RF-SESSION-ENDED"

@@ -1,0 +1,52 @@
+# Every function that implements a safety row: raises a refusal, maps a line, opens a queue entry or writes session
+# state. tests/test_safety_functions.py fails the build if one is missing; scripts/mutate.py mutates exactly this file.
+line_tables = ["SIGN_ONLY", "ALERT_LINE", "PATIENT_ROUTE_LINE"]
+
+[[modules]]
+path = "cards.py"
+functions = [
+    "__init__",
+    "_answer",
+    "_discard",
+    "_draft",
+    "_entry_line",
+    "_flag",
+    "_free",
+    "_gate",
+    "_keys",
+    "_new_entry",
+    "_read",
+    "_read_record",
+    "_report",
+    "_revoke",
+    "_send",
+    "_typed",
+    "_view",
+    "emit",
+    "load",
+    "open",
+    "patient_view",
+    "provider_view",
+    "step",
+    "upgrade_source",
+]
+
+[[modules]]
+path = "sleeve.py"
+functions = [
+    "__init__",
+    "_gate",
+    "end",
+    "session",
+]
+
+# A refusal must not change the session, the actor or the log: each statement is injected before every refusal.
+[[session]]
+path = "cards.py"
+function = "_gate"
+statements = ["self.actor = 'clinician'", "self.grant_id = None", "self.env.log.append({'episode': 'x', 'kind': 'x'})", "self.drafts.append('x')"]
+
+[[session]]
+path = "cards.py"
+function = "open"
+statements = ["self.actor = 'clinician'", "self.card = {'header': {}}", "self.env.log.append({'episode': 'x', 'kind': 'x'})"]
