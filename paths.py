@@ -4,7 +4,8 @@
 import os, pathlib, tomllib
 
 LOCAL = pathlib.Path(os.environ.get("CARDS_LOCAL") or pathlib.Path(__file__).resolve().parent / "local.toml")
-_KEY = {"CARDS_TRUTH": "truth", "CARDS_WORDING": "wording"}
+_KEY = {"CARDS_TRUTH": "truth", "CARDS_WORDING": "wording", "CARDS_SIGNED": "cards_signed",
+        "REUSED_SIGNED": "reused_signed"}
 
 
 def root(var, given=None):
@@ -17,3 +18,8 @@ def root(var, given=None):
 def traces_set():
     """True only when both answer-file folders are set."""
     return root("CARDS_TRUTH") is not None and root("CARDS_WORDING") is not None
+
+
+def signed_set():
+    """True only when both signed files (cards and the file its reused lines come from) are set."""
+    return root("CARDS_SIGNED") is not None and root("REUSED_SIGNED") is not None

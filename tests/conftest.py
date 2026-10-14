@@ -7,10 +7,12 @@ import paths  # noqa: E402
 from messages import msg  # noqa: E402
 
 NEEDS_TRUTH = "needs_truth"
+NEEDS_SIGNED = "needs_signed"
 
 
 def pytest_configure(config):
     config.addinivalue_line("markers", f"{NEEDS_TRUTH}: runs only with the answer-file setting present")
+    config.addinivalue_line("markers", f"{NEEDS_SIGNED}: runs only with CARDS_SIGNED and REUSED_SIGNED set")
 
 
 def pytest_collection_modifyitems(config, items):
@@ -20,6 +22,10 @@ def pytest_collection_modifyitems(config, items):
     if not paths.traces_set():
         drop = [i for i in items if i.get_closest_marker(NEEDS_TRUTH)]
         items[:] = [i for i in items if not i.get_closest_marker(NEEDS_TRUTH)]
+        config.hook.pytest_deselected(items=drop)
+    if not paths.signed_set():
+        drop = [i for i in items if i.get_closest_marker(NEEDS_SIGNED)]
+        items[:] = [i for i in items if not i.get_closest_marker(NEEDS_SIGNED)]
         config.hook.pytest_deselected(items=drop)
 
 
