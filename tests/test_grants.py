@@ -81,3 +81,60 @@ def test_ended_decision_maker_not_listed_as_acting():
     c = card(("SYNTH-GR-0002", "revoked", "1937-01-10"))
     v, v0 = patient(env(), text=c).patient_view(), patient(env()).patient_view()
     assert len(v) < len(v0)
+
+
+def test_revoke_saved_to_card_file_and_reloaded_in_fresh_process(tmp_path):
+    import subprocess, sys
+    f = tmp_path / "card.toml"
+    f.write_text(PATIENT)
+    e = env()
+    p = e.session("patient", "SYNTH-P0101")
+    p.open(path=f)
+    p.step("revoke", grant_id="SYNTH-GR-0001")
+    assert not [x for x in tmp_path.iterdir() if x.name != "card.toml"]          # no temp file left behind
+    code = ("import sys, pathlib; sys.path.insert(0, sys.argv[1]); import cards; "
+            "c = cards.load(pathlib.Path(sys.argv[2]).read_text()); "
+            "print(cards.grant_state(c, 'SYNTH-GR-0001', '1937-02-01'), cards.grant_state(c, 'SYNTH-GR-0002', '1937-02-01'))")
+    r = subprocess.run([sys.executable, "-c", code, str(cards.pathlib.Path(cards.__file__).parent), str(f)],
+                       capture_output=True, text=True)
+    assert r.stdout.split() == ["revoked", "current"], r.stderr
+    with pytest.raises(cards.Refused):
+        e.session("agent", "SYNTH-AG-0001", "SYNTH-GR-0001").open(path=f)
+    p.step("revoke", grant_id="SYNTH-GR-0001")                                # already ended: file unchanged
+    assert f.read_text().count('event = "revoked"') == 1
+
+
+def test_failed_save_refuses_revoke_and_changes_nothing(tmp_path, monkeypatch):
+    from messages import msg
+    f = tmp_path / "card.toml"
+    f.write_text(PATIENT)
+    e = env()
+    p = e.session("patient", "SYNTH-P0101")
+    p.open(path=f)
+    before_events, before_log, before_view = list(p.card["grant_events"]), list(e.log), p.patient_view()
+
+    def boom(*a):
+        raise OSError("disk full")
+    monkeypatch.setattr(cards.os, "replace", boom)
+    with pytest.raises(cards.Refused) as x:
+        p.step("revoke", grant_id="SYNTH-GR-0001")
+    assert x.value.line_id == "PV-TRY-AGAIN" and x.value.text == msg("PV-TRY-AGAIN")
+    assert f.read_text() == PATIENT and [y.name for y in tmp_path.iterdir()] == ["card.toml"]
+    assert p.card["grant_events"] == before_events and e.revoked == {}
+    assert cards.grant_state(p.card, "SYNTH-GR-0001", e.now, e.revoked) == "current"
+    assert not any(r["event"] == "CL-REVOKED" for r in e.log) and e.notices == []
+    assert p.patient_view() == before_view and len(e.log) >= len(before_log)
+    monkeypatch.undo()
+    agent(e, text=f.read_text())                                                 # grant still works
+
+
+def test_save_card_fsyncs_and_replaces(tmp_path, monkeypatch):
+    calls = []
+    real_fsync, real_replace = cards.os.fsync, cards.os.replace
+    monkeypatch.setattr(cards.os, "fsync", lambda fd: (calls.append("fsync"), real_fsync(fd)))
+    monkeypatch.setattr(cards.os, "replace", lambda a, b: (calls.append(("replace", cards.pathlib.Path(a).parent)),
+                                                           real_replace(a, b)))
+    f = tmp_path / "c.toml"
+    f.write_text("old")
+    cards.save_card(f, "new")
+    assert f.read_text() == "new" and calls == ["fsync", ("replace", tmp_path), "fsync"]

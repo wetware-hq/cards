@@ -1,7 +1,7 @@
 """Identity cards for patients and providers. An agent loads one card per session (simulated login) and does
 background work for that person. The card is typed TOML: every field has a fixed type and values from fixed lists;
 free text is refused. Facts are references to source records, never copies. Synthetic data only."""
-import re, tomllib
+import os, pathlib, re, tempfile, tomllib
 from messages import msg
 
 ID = {"card_id": r"SYNTH-CARD-\d{1,6}", "episode_id": r"SYNTH-EP-\d{1,6}", "registration_id": r"SYNTH-REG-\d{1,6}",
@@ -173,6 +173,37 @@ def route(fact):
     return max(a, b, key=ROUTES.index)
 
 
+def save_card(path, text):
+    """Write a card file atomically: a temp file in the same folder, fsync, then os.replace. On any failure the old
+    file is left exactly as it was and the error is raised."""
+    path = pathlib.Path(path)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".card-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+    d = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(d)
+    finally:
+        os.close(d)
+
+
+def allergies_in_effect(card):
+    """The allergies an allergy check must use: every recorded allergy, a patient's own report counting at once.
+    An explicit "none" never clears an allergy and never removes one. None when nothing is recorded (unknown)."""
+    facts = [f for f in card["facts"] if f["field"] == "allergies"]
+    if not facts:
+        return None
+    return sorted({f["value"] for f in facts if f["value"] != "none"})
+
+
 class Env:
     """The environment: verified registrations, source records, the clinician queue, the outbox and the log.
     The log is the activity record; cards only link to it by episode id."""
@@ -201,13 +232,17 @@ class Session:
         self.env, self.actor, self.actor_id, self.grant_id = env, actor, actor_id, grant_id
         self.card, self.grant, self.verified, self.ended = None, None, None, False
         self.drafts, self.fresh = [], {}
+        self.path, self.text = None, None
 
     # ---------------------------------------------------------------- open
-    def open(self, text):
+    def open(self, text=None, path=None):
+        """Open a card from its text, or from its file (then a revoke is saved back to that file)."""
         if self.ended:
             raise Refused("RF-SESSION-ENDED", msg("RF-SESSION-ENDED"))
         if self.card is not None:
             raise Refused("RF-ONE-PROFILE", msg("RF-ONE-PROFILE"))
+        if path is not None:
+            text = pathlib.Path(path).read_text(encoding="utf-8")
         card = load(text)
         h = card["header"]
         if h["kind"] == "provider":
@@ -229,7 +264,7 @@ class Session:
                     ends = [e["at"] for e in card["grant_events"] if e["grant_id"] == self.grant_id and e["event"] != "granted"]
                     raise Refused("RF-REVOKED", msg("RF-REVOKED", date=self.env.revoked.get(self.grant_id, (ends or [self.env.now])[0])))
                 self.grant = g
-        self.card = card
+        self.card, self.path, self.text = card, path, text
         self.env.emit(h["episode_id"], "opened", actor=self.actor)
         return header(card)
 
@@ -352,6 +387,9 @@ class Session:
         if e["kind"] == "answer" and e["route"] in ALERT_LINE:
             return msg(ALERT_LINE[e["route"]], item_id=e["item"], event_id=f"{e['episode']}#{e['id']}",
                        status=msg(e["st"]))
+        if e["kind"] == "conflict":
+            return msg("CQ-RECORD-CONFLICT", label=msg(f"FD-{LABEL[e['field']]}-CLIN"), new_record_id=e["record"],
+                       old_record_id=e["old_record"])
         if e["record"] is None:
             return msg("VAL-UNKNOWN-CLIN")
         return msg("CQ-FACT-FLAGGED", label=msg(f"FD-{LABEL[e['field']]}-CLIN"), record_id=e["record"])
@@ -405,8 +443,16 @@ class Session:
             f["flag"] = "patient"
             st = "ST-FLAGGED"
         else:
+            old = [x for x in same if x["value"] == "none" and x["source"] == "clinician"]
             f = self._report(field, value)
             st = "ST-CHANGED"
+            if old:                                  # C15: a new answer against an earlier checked "none"
+                old[0]["conflict"] = f["source_record"]          # stays marked until a clinician reviews it
+                e = self._new_entry(ep, route=route(f), kind="conflict", field=field, item=ITEM.get(field, field),
+                                    record=f["source_record"], old_record=old[0]["source_record"], st="ST-FLAGGED")
+                self.env.emit(ep, "flagged", entry=e["id"])
+                self.env.notices.append(("FL-WRONG-DONE-PT", msg("FL-WRONG-DONE-PT")))
+                return msg("FL-WRONG-DONE-PT")
         e = self._new_entry(ep, route=route(f), kind="flag", field=field, item=ITEM.get(field, field),
                             record=f["source_record"], st=st)
         self.env.emit(ep, "flagged", entry=e["id"])
@@ -435,9 +481,19 @@ class Session:
     def _revoke(self, ep, grant_id):
         if grant_id not in self.card["grants"]:
             raise Refused("RF-NOT-YOURS", msg("RF-NOT-YOURS"))
-        self.env.revoked[grant_id] = self.env.now
+        ev = {"grant_id": grant_id, "event": "revoked", "at": self.env.now}
         if grant_state(self.card, grant_id, self.env.now) == "current":     # appended to the card's history
-            self.card["grant_events"].append({"grant_id": grant_id, "event": "revoked", "at": self.env.now})
+            if self.path is not None:                                        # saved first; nothing changes if not
+                text = self.text.rstrip("\n") + "\n\n[[grant_event]]\n" + "".join(
+                    f'{k} = "{v}"\n' for k, v in ev.items())
+                try:
+                    load(text)
+                    save_card(self.path, text)
+                except (OSError, Refused):
+                    raise Refused("PV-TRY-AGAIN", msg("PV-TRY-AGAIN"))
+                self.text = text
+            self.card["grant_events"].append(ev)
+        self.env.revoked[grant_id] = self.env.now
         self.env.notices.append(("PV-REVOKE", msg("PV-REVOKE", date=self.env.now)))
         self.env.emit(ep, "CL-REVOKED", grant=grant_id)
         return True
@@ -496,7 +552,7 @@ class Session:
                 out.append(msg("PV-ANS-SDM", relationship=msg(f"REL-{e['rel'].upper()}-PT"), date=e["at"]))
             if e.get("declined"):
                 out.append(msg("PV-DECLINED"))
-            settled = e["kind"] == "flag" or e.get("declined") or (e.get("st") == "ST-CONFIRMED" and e.get("value") is True)
+            settled = e["kind"] in ("flag", "conflict") or e.get("declined") or (e.get("st") == "ST-CONFIRMED" and e.get("value") is True)
             if settled and e["route"] in PATIENT_ROUTE_LINE:
                 out.append(msg(PATIENT_ROUTE_LINE[e["route"]]))
         out += [t for k, t in self.env.notices if k != "PV-FACT-HIDDEN"]

@@ -708,3 +708,34 @@ def test_ended_flag_alone_refuses():
     s = patient(env()); s.ended = True
     x = refused("RF-SESSION-ENDED", s.step, "view")
     assert x.text == msg("RF-SESSION-ENDED")
+
+
+# ---------------------------------------------------------------- C15: new allergy against a checked "none"
+def test_new_allergy_against_checked_none_opens_record_conflict():
+    e = env()
+    p = patient(e, PATIENT.replace('value = "penicillin"', 'value = "none"', 1))
+    p.step("flag", field="allergies", value="latex")
+    q = e.queue
+    assert len(q) == 1 and q[0]["st"] == "ST-FLAGGED" and q[0]["kind"] == "conflict" and q[0]["item"] == "allergy_any"
+    new = p.card["facts"][-1]["source_record"]
+    assert q[0]["line"] == msg("CQ-RECORD-CONFLICT", label=LINES["FD-ALLERGIES-CLIN"], new_record_id=new,
+                               old_record_id="SYNTH-REC-0001")
+    assert cards.allergies_in_effect(p.card) == ["latex"]                  # used at once; old none kept, marked
+    assert [f for f in p.card["facts"] if f["value"] == "none"][0]["conflict"] == new
+    assert LINES["VAL-NONE-ALLERGY-PT"] not in p.patient_view() and LINES["PV-BEFORE-PROC"] in p.patient_view()
+
+
+def test_none_never_clears_an_allergy_check():
+    c = cards.load(PATIENT)
+    assert cards.allergies_in_effect(c) == ["penicillin"]
+    c["facts"].append({"field": "allergies", "value": "none", "source": "clinician", "source_record": "SYNTH-REC-0009",
+                       "recorded": "1937-01-30"})
+    assert cards.allergies_in_effect(c) == ["penicillin"]
+    assert cards.allergies_in_effect(cards.load(drop_fact(PATIENT, "allergies"))) is None
+
+
+def test_missing_allergy_without_checked_none_stays_changed():
+    e = env()
+    p = patient(e, PATIENT.replace('value = "penicillin"\nsource = "clinician"', 'value = "none"\nsource = "patient"', 1))
+    p.step("flag", field="allergies", value="latex")
+    assert e.queue[0]["st"] == "ST-CHANGED" and e.queue[0]["kind"] == "flag"

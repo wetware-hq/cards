@@ -7,6 +7,7 @@ path = "cards.py"
 functions = [
     "__init__",
     "_answer",
+    "allergies_in_effect",
     "_discard",
     "_draft",
     "_entry_line",
@@ -28,6 +29,7 @@ functions = [
     "open",
     "patient_view",
     "provider_view",
+    "save_card",
     "step",
     "upgrade_source",
 ]
