@@ -120,8 +120,12 @@ def test_toml_card_round_trip():
     assert c["header"]["scope"] == ["read"] and "SYNTH-GR-0300" in c["grants"]
 
 
+@pytest.mark.needs_signed
 def test_sleeve_refusals_carry_their_own_signed_text():
-    from messages import msg
+    import signing
+    from test_signed_sources import signed_rows
+    rows = signed_rows()
+    msg = lambda k: rows[k][0]                         # expected text from the signed source, never WORDING.md
     h, sh = make()
     cases = [lambda: sh.session("SYNTH-nobody", "patient", "SYNTH-P0101"),
              lambda: sh.session("SYNTH-P0101", "clinician", "SYNTH-P0101", discipline="medicine"),
