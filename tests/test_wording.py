@@ -8,12 +8,14 @@ TEXT = (ROOT / "WORDING.md").read_text()
 sys.path.insert(0, str(ROOT / "scripts"))
 import sync_wording
 
+OWN = {k for k in re.findall(r"^\| ([A-Z]{2,4}-[A-Z0-9-]+) \|", TEXT, re.M)} - set(sync_wording.REUSED)
+
 
 def test_wording_matches_its_header_hash():
     head, body = TEXT.split("\n\n", 1)
     assert re.search(r"^sha256: ([0-9a-f]{64})$", head, re.M).group(1) == hashlib.sha256(body.encode()).hexdigest()
     assert messages.SHA256 == hashlib.sha256(body.encode()).hexdigest()
-    assert set(messages.LINES) == sync_wording.SIGNED_IDS | set(sync_wording.REUSED)
+    assert set(messages.LINES) == OWN | set(sync_wording.REUSED) and len(OWN) > 40
 
 
 def test_used_ids_are_signed():
@@ -25,27 +27,29 @@ def test_used_ids_are_signed():
 
 
 def test_agent_name_only_in_one_line():
-    own = [k for k, v in messages.LINES.items() if "[agent_name]" in v and k in sync_wording.SIGNED_IDS]
+    own = [k for k, v in messages.LINES.items() if "[agent_name]" in v and k in OWN]
     assert own == ["PV-DRAFT-NOT-SENT"]
     assert "[display name]" not in TEXT
 
 
 def _signed():
-    rows = "\n".join(f"| {k} | patient | x |" for k in sorted(sync_wording.SIGNED_IDS))
+    rows = "\n".join(f"| {k} | patient | x |" for k in sorted(OWN))
     reused = "\n".join(f"| {k} | y |" for k in sync_wording.REUSED)
     return rows, reused
 
 
-def test_sync_refuses_wrong_count_before_hashing(monkeypatch):
+def test_sync_takes_count_from_the_file_and_refuses_before_hashing(monkeypatch):
     rows, reused = _signed()
     calls = []
     real = hashlib.sha256
     monkeypatch.setattr(sync_wording.hashlib, "sha256", lambda *a: calls.append(a) or real(*a))
-    assert sync_wording.render(rows, reused).count("| x |") == 49 and calls
-    calls.clear()
+    assert sync_wording.render(rows, reused).count("| x |") == len(OWN) and calls
     lines = rows.splitlines()
-    for bad in ("\n".join(lines[:-1]), rows + "\n" + lines[0], rows.replace("RF-SESSION-ENDED", "RF-SESSION-END"),
-                rows + "\n| RF-EXTRA | session | z |"):
+    assert sync_wording.render("\n".join(lines[:-1]), reused).count("| x |") == len(OWN) - 1   # count follows the file
+    assert sync_wording.render(rows + "\n| RF-EXTRA | session | z |", reused).count("| RF-EXTRA | z |") == 1
+    calls.clear()
+    for bad in (rows + "\n" + lines[0], rows + "\n| RF-HALF | broken row", rows + "\n| RF-NEW | patient | DRAFT text |",
+                rows + "\n| RF-NEW | patient | Pending: TBD |", rows + "\n| RF-NEW | patient | Wording ?? |"):
         try:
             sync_wording.render(bad, reused)
             raise AssertionError("not refused")
