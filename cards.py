@@ -2,7 +2,7 @@
 background work for that person. The card is typed TOML: every field has a fixed type and values from fixed lists;
 free text is refused. Facts are references to source records, never copies. Synthetic data only."""
 import re, tomllib
-from messages import msg, code
+from messages import msg
 
 ID = {"card_id": r"SYNTH-CARD-\d{1,6}", "episode_id": r"SYNTH-EP-\d{1,6}", "registration_id": r"SYNTH-REG-\d{1,6}",
       "grant_id": r"SYNTH-GR-\d{1,6}", "agent_id": r"SYNTH-AG-\d{1,6}", "source_record": r"SYNTH-REC-\d{1,6}"}
@@ -26,6 +26,8 @@ SENSITIVE = {"low_mood": "mental_health", "self_harm_risk": "mental_health"}
 ROUTES = ("routine", "before_procedure", "same_day")      # lowest to highest
 ROUTE = {"allergies": "before_procedure", "medicines": "before_procedure", "self_harm_risk": "same_day"}
 QUESTION_ROUTE = {"allergy_any": "before_procedure"}     # unset question: same_day
+ALERT_LINE = {"same_day": "CQ-SAMEDAY-ALERT", "before_procedure": "CQ-BEFORE-PROC"}
+ITEM = {"allergies": "allergy_any"}         # question id a flagged field's alert names
 PATIENT_ROUTE_LINE = {"same_day": "PV-SAMEDAY", "before_procedure": "PV-BEFORE-PROC"}
 LABEL = {"allergies": "ALLERGIES", "medicines": "MEDICINES", "problems": "PROBLEMS", "preferences": "PREFERENCES"}
 NONE_ID = {"allergies": "ALLERGY", "medicines": "MEDICINES", "problems": "PROBLEMS"}
@@ -35,7 +37,7 @@ SIGN_ONLY = {"approve": "RF-SIGN-APPROVE", "set_route": "RF-SIGN-ROUTE", "close"
 ACTOR_ACTIONS = {"agent": {"read", "read_record", "check", "draft", "send", "queue_alert", "answer"},
                  "decision_maker": {"read", "answer"},
                  "patient": {"read", "view", "flag", "decline", "revoke", "answer"},
-                 "clinician": {"read", "read_record", "check", "draft", "review"}}
+                 "clinician": {"read", "read_record", "check", "draft", "review", "answer"}}
 PROVIDER_AGENT = {"read", "read_record", "check", "draft"}
 
 
@@ -188,7 +190,7 @@ class Session:
             self.verified = reg
         else:
             if self.actor == "clinician":
-                raise Refused("RF-NOT-YOURS", code("not_yours"))
+                raise Refused("RF-NOT-YOURS", msg("RF-NOT-YOURS"))
             if self.actor in ("agent", "decision_maker"):
                 g = card["grants"].get(self.grant_id)
                 if g is None or g["agent_id"] != self.actor_id or ("rel" in g) != (self.actor == "decision_maker"):
@@ -216,10 +218,10 @@ class Session:
             raise Refused(SIGN_ONLY[action], msg(SIGN_ONLY[action]))
         if self.card["header"]["kind"] == "provider" and self.actor == "agent" and action not in PROVIDER_AGENT:
             self.env.emit(ep, "CL-REFUSED", actor=self.actor, action=action)
-            raise Refused("RF-NOT-YOURS", code("not_yours"))
+            raise Refused("RF-NOT-YOURS", msg("RF-NOT-YOURS"))
         if action not in ACTOR_ACTIONS[self.actor] and action not in SIGN_ONLY:
             self.env.emit(ep, "CL-REFUSED", actor=self.actor, action=action)
-            raise Refused("RF-NOT-YOURS", code("not_yours"))
+            raise Refused("RF-NOT-YOURS", msg("RF-NOT-YOURS"))
         return ep
 
     def _discard(self):
@@ -285,7 +287,7 @@ class Session:
     def _read_record(self, ep, source_record):
         """Re-read the source record (the only way past a stale fact)."""
         if source_record not in {f["source_record"] for f in self.card["facts"]}:
-            raise Refused("RF-NOT-YOURS", code("not_yours"))
+            raise Refused("RF-NOT-YOURS", msg("RF-NOT-YOURS"))
         rec = self.env.records[source_record]
         self.fresh[source_record] = rec["value"]
         self.env.emit(ep, "reread", record=source_record)
@@ -306,63 +308,92 @@ class Session:
         return len(out)
 
     def _queue_alert(self, ep, field):
+        """An agent raises a fact for a clinician. A missing fact is raised as unknown (VAL-UNKNOWN-CLIN)."""
         facts = [f for f in self.card["facts"] if f["field"] == field] or [{"field": field, "value": "none"}]
-        e = {"id": len(self.env.queue) + 1, "episode": ep, "route": route(facts[0]), "kind": "alert",
-             "status": "open", "at": self.env.now}
-        self.env.queue.append(e)
+        e = self._new_entry(ep, route=route(facts[0]), kind="alert", field=field, item=ITEM.get(field, field),
+                            record=facts[0].get("source_record"), st="ST-UNCONFIRMED")
         self.env.emit(ep, "queued", entry=e["id"])
         return e["id"]
 
-    def _answer(self, ep, question, value):
+    def _entry_line(self, e):
+        """Clinician line for a queue entry. A safety answer's route picks CQ-SAMEDAY-ALERT or CQ-BEFORE-PROC; a flagged
+        or agent-raised fact always uses CQ-FACT-FLAGGED (label and record id only) and keeps its route."""
+        if e["kind"] == "answer" and e["route"] in ALERT_LINE:
+            return msg(ALERT_LINE[e["route"]], item_id=e["item"], event_id=f"{e['episode']}#{e['id']}",
+                       status=msg(e["st"]))
+        if e["record"] is None:
+            return msg("VAL-UNKNOWN-CLIN")
+        return msg("CQ-FACT-FLAGGED", label=msg(f"FD-{LABEL[e['field']]}-CLIN"), record_id=e["record"])
+
+    def _new_entry(self, ep, **f):
+        e = dict(id=len(self.env.queue) + 1, episode=ep, status="open", at=self.env.now, **f)
+        e["line"] = self._entry_line(e)
+        self.env.queue.append(e)
+        return e
+
+    def _answer(self, ep, question, value, rel=None):
+        """An answer for the patient. A clinician records a decision-maker's answer in their own session
+        (rel from the signed list); an agent's or decision-maker's answer stays unconfirmed."""
         if not isinstance(value, bool):
             raise _free("answer")
+        if self.actor == "clinician":
+            _typed("rel", rel, allowed=RELS)
+        elif self.actor == "decision_maker":
+            rel = self.grant["rel"]
+        elif rel is not None:
+            raise _free("rel")
         for e in self.env.queue:
-            if e.get("question") == question and e["episode"] == ep and e["status"] != "declined":
+            if e.get("question") == question and e["episode"] == ep and not e.get("declined"):
                 if self.actor != "patient":
                     return e["id"]
-        status = "confirmed" if self.actor == "patient" else "unconfirmed"
-        e = {"id": len(self.env.queue) + 1, "episode": ep, "route": QUESTION_ROUTE.get(question, "same_day"),
-             "kind": "answer", "question": question, "value": value, "by": self.actor, "status": status,
-             "line": msg(f"ST-{status.upper()}"), "at": self.env.now}
-        self.env.queue.append(e)
+        st = "ST-CONFIRMED" if self.actor == "patient" else "ST-UNCONFIRMED"
+        e = self._new_entry(ep, route=QUESTION_ROUTE.get(question, "same_day"), kind="answer", question=question,
+                            item=question, value=value, by=self.actor, rel=rel, st=st, grant=self.grant_id)
         self.env.emit(ep, "answered", question=question, by=self.actor)
         return e["id"]
 
     def _decline(self, ep, question):
-        """The patient's own decline overrides any answer given for them."""
+        """The patient's own decline overrides any answer given for them. The entry stays open for review."""
         hit = [e for e in self.env.queue if e.get("question") == question and e["episode"] == ep]
         for e in hit:
-            e["status"], e["line"] = "declined", msg("ST-DECLINED")
+            e["declined"], e["st"] = True, "ST-DECLINED"
+            e["line"] = self._entry_line(e)
         if not hit:
-            self.env.queue.append({"id": len(self.env.queue) + 1, "episode": ep,
-                                   "route": QUESTION_ROUTE.get(question, "same_day"),
-                                   "kind": "answer", "question": question, "by": "patient", "status": "declined",
-                                   "line": msg("ST-DECLINED"), "at": self.env.now})
+            self._new_entry(ep, route=QUESTION_ROUTE.get(question, "same_day"), kind="answer", question=question,
+                            item=question, by="patient", rel=None, declined=True, st="ST-DECLINED")
         self.env.emit(ep, "CL-DECLINED", question=question)
         return True
 
     def _flag(self, ep, field, value=None):
-        """Patient flags a fact as wrong (or says one is missing). Goes to the item's own alert_route."""
+        """Patient flags a fact as wrong (or says one is missing): one queue entry per flagged fact, on the item's
+        own alert_route. The line names the field label and record id only, never the value."""
         same = [f for f in self.card["facts"] if f["field"] == field]
         facts = [f for f in same if value is None or f["value"] == value]
         if facts:
             f = facts[0]
             f["flag"] = "patient"
-            st, val = None, f["value"]
+            st = "ST-FLAGGED"
         else:
-            _typed(LABEL[field].lower(), value, allowed=VALUES[field])
-            for x in same:
-                x["flag"] = "patient"
-            f = {"field": field, "value": value}
-            st, val = msg("ST-CHANGED"), value
-        label = msg(f"FD-{LABEL[field]}-CLIN")
-        recs = [x["source_record"] for x in ([f] if "source_record" in f else same)]
-        rec = recs[0] if recs else code("no_record")
-        e = {"id": len(self.env.queue) + 1, "episode": ep, "route": route(f), "kind": "flag", "field": field,
-             "status": "open", "line": msg("CQ-FACT-FLAGGED", label=label, record_id=rec), "st": st, "at": self.env.now}
-        self.env.queue.append(e)
+            f = self._report(field, value)
+            st = "ST-CHANGED"
+        e = self._new_entry(ep, route=route(f), kind="flag", field=field, item=ITEM.get(field, field),
+                            record=f["source_record"], st=st)
         self.env.emit(ep, "flagged", entry=e["id"])
+        self.env.notices.append(("FL-WRONG-DONE-PT", msg("FL-WRONG-DONE-PT")))
         return msg("FL-WRONG-DONE-PT")
+
+    def _report(self, field, value):
+        """A fact the patient says is missing becomes a new patient-reported fact: the environment gives it its own
+        new record id and the session time."""
+        _typed(LABEL[field].lower(), value, allowed=VALUES[field])
+        if value == "none":
+            raise _free(LABEL[field].lower())
+        n = 1 + max([int(k.rsplit("-", 1)[1]) for k in self.env.records] + [0])
+        rid = f"SYNTH-REC-{n:04d}"
+        self.env.records[rid] = {"recorded": self.env.now, "value": value}
+        f = {"field": field, "value": value, "source": "patient", "source_record": rid, "recorded": self.env.now}
+        self.card["facts"].append(f)
+        return f
 
     def _review(self, ep, entry):
         for e in self.env.queue:
@@ -372,10 +403,9 @@ class Session:
 
     def _revoke(self, ep, grant_id):
         if grant_id not in self.card["grants"]:
-            raise Refused("RF-NOT-YOURS", code("not_yours"))
+            raise Refused("RF-NOT-YOURS", msg("RF-NOT-YOURS"))
         self.env.revoked[grant_id] = self.env.now
-        self.env.notices.append(("PV-REVOKE-LIST", msg("PV-REVOKE-LIST", agent_name=self.card["grants"][grant_id]["agent_name"],
-                                                       date=self.env.now)))
+        self.env.notices.append(("PV-REVOKE", msg("PV-REVOKE", date=self.env.now)))
         self.env.emit(ep, "CL-REVOKED", grant=grant_id)
         return True
 
@@ -392,6 +422,8 @@ class Session:
         out = []
         for field in LABEL:
             every = [f for f in self.card["facts"] if f["field"] == field]
+            if any(f["value"] != "none" for f in every):
+                every = [f for f in every if f["value"] != "none"]
             facts = [f for f in every if self._visible(f)]
             out.append(msg(f"FD-{LABEL[field]}-PT"))
             if len(facts) < len(every):
@@ -403,7 +435,9 @@ class Session:
                     out.append(msg(f"VAL-NONE-{NONE_ID[field]}-PT"))
                 else:
                     out.append(f["value"].replace("_", " "))
-                if f["source"] == "on_behalf":
+                if f.get("flag"):
+                    pass
+                elif f["source"] == "on_behalf":
                     out.append(msg("SRC-ONBEHALF-PT", rel=msg(f"REL-{f['rel'].upper()}-PT")))
                 else:
                     out.append(msg("SRC-PATIENT-PT" if f["source"] == "patient" else "SRC-CLINICIAN-PT"))
@@ -419,8 +453,18 @@ class Session:
                 out += [msg("FD-ACTS-FOR-PT"), msg(f"REL-{g['rel'].upper()}-PT"), g["person_name"]]
         ep_ = self.card["header"]["episode_id"]
         for e in self.env.queue:
-            alert = e["kind"] == "flag" or e.get("value") is True or e["status"] == "declined"
-            if e["episode"] == ep_ and alert and e["route"] in PATIENT_ROUTE_LINE:
+            if e["episode"] != ep_:
+                continue
+            if e["kind"] == "answer" and e["by"] == "agent" and e["st"] == "ST-UNCONFIRMED":
+                out.append(msg("PV-ANS-AGENT"))
+                if e.get("grant") in self.env.revoked:
+                    out.append(msg("PV-CHECK-PENDING"))
+            if e["kind"] == "answer" and e.get("rel") is not None:
+                out.append(msg("PV-ANS-SDM", relationship=msg(f"REL-{e['rel'].upper()}-PT"), date=e["at"]))
+            if e.get("declined"):
+                out.append(msg("PV-DECLINED"))
+            settled = e["kind"] == "flag" or e.get("declined") or (e.get("st") == "ST-CONFIRMED" and e.get("value") is True)
+            if settled and e["route"] in PATIENT_ROUTE_LINE:
                 out.append(msg(PATIENT_ROUTE_LINE[e["route"]]))
         out += [t for k, t in self.env.notices if k != "PV-FACT-HIDDEN"]
         return out

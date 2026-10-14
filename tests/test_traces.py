@@ -14,7 +14,7 @@ def test_trace(cid):
 
 
 def test_fourteen_traces_run_deterministically():
-    assert len(traces.TRACES) == 14
+    assert len(traces.TRACES) == 15 and "C15" in traces.TRACES
     for cid in traces.TRACES:
         a, b = traces.run(cid), traces.run(cid)
         a.pop("loaded"), b.pop("loaded")
@@ -25,9 +25,15 @@ def test_blocked_without_truth(tmp_path):
     assert traces.score("C01", str(tmp_path)) == (traces.BLOCKED, {})
 
 
-def test_pending_ruling_never_scored(tmp_path):
+def test_pending_ruling_never_scored(tmp_path, monkeypatch):
     (tmp_path / "C04.toml").write_text('expected_outcome = "nonsense"\n')
+    monkeypatch.setattr(traces, "PENDING_RULING", {"C04"})
     assert traces.score("C04", str(tmp_path)) == (traces.PENDING, {})
+
+
+def test_unsigned_reference_is_pending(tmp_path):
+    (tmp_path / "C04.toml").write_text('expected_lines = ["PV-NOT-SIGNED-YET"]\n')
+    assert traces.score("C04", str(tmp_path)) == (traces.PENDING, {"unsigned_or_unsynced": ["PV-NOT-SIGNED-YET"]})
 
 
 def test_scored_only_against_answer_file(tmp_path):
