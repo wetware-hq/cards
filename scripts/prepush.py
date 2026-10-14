@@ -5,7 +5,7 @@ internal name or a local workspace path.
 
     python3 scripts/prepush.py CARDS_SIGNED.md REUSED_SIGNED.md
 The hook passes the two paths from CARDS_SIGNED and REUSED_SIGNED in its environment."""
-import pathlib, re, subprocess, sys
+import os, pathlib, re, subprocess, sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -31,6 +31,9 @@ def main(argv):
         print(msg("RUN-TRACES-NOT-RUN"))
         return 1
     problems = []
+    import mutation_hash
+    if not mutation_hash.fresh():
+        problems.append(mutation_hash.STALE)
     truth = {p.name for p in paths.root("CARDS_TRUTH").iterdir()} | {"patient_wording.md"}
     for p in tracked():
         if p.name in truth or ANSWER.fullmatch(p.name):
@@ -51,8 +54,10 @@ def main(argv):
                 problems.append(f"{p.relative_to(ROOT)}:{text.count(chr(10), 0, m.start()) + 1}: internal name or path")
     if subprocess.run([sys.executable, "scripts/rulecheck.py"], cwd=ROOT).returncode:
         problems.append("rulecheck failed")
+    env = dict(os.environ, CARDS_SIGNED=str(pathlib.Path(argv[1]).resolve()),
+               REUSED_SIGNED=str(pathlib.Path(argv[2]).resolve()))
     r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"], cwd=ROOT,
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, env=env)
     print(r.stdout[-2000:])
     if r.returncode:
         problems.append("tests failed")

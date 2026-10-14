@@ -1,5 +1,6 @@
 """WORDING.md is the only wording source. These checks need no access to the signed files."""
 import ast, hashlib, pathlib, re, subprocess, sys
+import pytest
 import helpers  # noqa: F401
 import messages
 
@@ -77,3 +78,16 @@ def test_no_coded_content():
     for p in files:
         if p.suffix in (".py", ".md", ".toml") and p.name != "test_wording.py":
             assert not bad.search(p.read_text()), p
+
+
+# ---------------------------------------------------------------- reused signed lines (room ruling 15 Oct 08:23)
+@pytest.mark.needs_signed
+def test_reused_lines_match_their_signed_source_exactly():
+    import re, sync_wording, paths
+    from messages import LINES
+    src, own = paths.root("REUSED_SIGNED").read_text(), paths.root("CARDS_SIGNED").read_text()
+    rows = dict(re.findall(r"^\| ([A-Z]{2,4}-[A-Z0-9-]+) \| (?:[a-z]+ \| )?([^|]*?) \|$", src, re.M))
+    own_ids = set(sync_wording.signed_ids(own))
+    for k in sync_wording.REUSED:
+        assert k not in own_ids, f"{k}: two signed sources"           # one signed source per line
+        assert k in rows and LINES[k] == rows[k], k                   # word for word, from the source

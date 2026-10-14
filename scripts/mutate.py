@@ -138,6 +138,10 @@ def main(argv):
     for s in survivors:
         print(f"SURVIVED {s}")
     print(f"mutation: {len(jobs) - len(survivors)}/{len(jobs)} killed")
+    if not survivors:                                    # a full run with every mutant killed: record the hash
+        import mutation_hash
+        mutation_hash.record()
+        print("mutation hash recorded in mutation_hash.txt")
     return 0 if not survivors else 1
 
 
