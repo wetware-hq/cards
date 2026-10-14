@@ -25,7 +25,8 @@ def test_used_ids_are_signed():
 
 
 def test_agent_name_only_in_one_line():
-    assert [k for k, v in messages.LINES.items() if "[agent_name]" in v] == ["PV-DRAFT-NOT-SENT"]
+    own = [k for k, v in messages.LINES.items() if "[agent_name]" in v and k in sync_wording.SIGNED_IDS]
+    assert own == ["PV-DRAFT-NOT-SENT"]
     assert "[display name]" not in TEXT
 
 

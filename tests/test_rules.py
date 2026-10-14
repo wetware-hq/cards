@@ -460,10 +460,11 @@ def test_revoke_mid_task():
     assert e.sent == [] and a.drafts == []
     assert e.queue[0]["status"] == "open"
     assert [r["event"] for r in e.log][-2:] == ["CL-REVOKED", "CL-REFUSED"]
-    assert e.notices == [("PV-DRAFT-NOT-SENT", msg("PV-DRAFT-NOT-SENT", agent_name="Helper"))]
+    assert e.notices == [("PV-REVOKE-LIST", msg("PV-REVOKE-LIST", agent_name="Helper", date="1937-02-01")),
+                         ("PV-DRAFT-NOT-SENT", msg("PV-DRAFT-NOT-SENT", agent_name="Helper"))]
     assert msg("PV-DRAFT-NOT-SENT", agent_name="Helper") in p.step("view")
     refused("RF-REVOKED", a.step, "read", field="allergies")
-    assert len(e.notices) == 1
+    assert len(e.notices) == 2
 
 
 def test_revoke_with_no_drafts_shows_no_notice():
@@ -471,7 +472,7 @@ def test_revoke_with_no_drafts_shows_no_notice():
     a = agent(e)
     patient(e).step("revoke", grant_id="SYNTH-GR-0001")
     refused("RF-REVOKED", a.step, "check")
-    assert e.notices == []
+    assert [k for k, _ in e.notices] == ["PV-REVOKE-LIST"]
 
 
 def test_send_before_revoke_goes_out():
@@ -500,7 +501,7 @@ def test_agent_name_from_grant_not_id():
     patient(e).step("revoke", grant_id="SYNTH-GR-0001")
     with pytest.raises(R):
         a.step("check")
-    assert "SYNTH-AG" not in e.notices[0][1] and e.notices[0][1].startswith("Helper ")
+    assert all("SYNTH-AG" not in n[1] and n[1].startswith("Helper ") for n in e.notices) and len(e.notices) == 2
 
 
 def test_queue_alert_route_from_item():
@@ -508,3 +509,44 @@ def test_queue_alert_route_from_item():
     a = agent(e, drop_fact(PATIENT, "allergies"))
     a.step("queue_alert", field="allergies")
     assert e.queue[0]["route"] == "before_procedure"
+
+
+def test_agent_rendered_view_hides_uncovered_category():
+    e = env()
+    a = agent(e)
+    v = a.patient_view()
+    assert LINES["PV-FACT-HIDDEN"] in v and "low mood" not in v and "mental" not in " ".join(v)
+    assert v.count(LINES["PV-FACT-HIDDEN"]) == 1 and LINES["VAL-UNKNOWN-PT"] not in v
+    assert "low mood" in patient(e).patient_view()
+    a.end()
+    refused("RF-SESSION-ENDED", a.patient_view)
+
+
+def test_view_shows_route_line_for_alerts():
+    e = env()
+    a = agent(e)
+    a.step("answer", question="q_bleed", value=False)
+    assert LINES["PV-SAMEDAY"] not in a.patient_view()
+    a.step("answer", question="q_bleed2", value=True)
+    assert LINES["PV-SAMEDAY"] in a.patient_view()
+    p = patient(e)
+    p.step("decline", question="allergy_any")
+    assert e.queue[-1]["route"] == "before_procedure" and LINES["PV-BEFORE-PROC"] in p.patient_view()
+    e.queue.append(dict(e.queue[-1], episode="SYNTH-EP-0999", route="same_day", status="declined"))
+    assert p.patient_view().count(LINES["PV-SAMEDAY"]) == 1
+    p.step("flag", field="problems", value="low_mood")
+    assert p.patient_view().count(LINES["PV-BEFORE-PROC"]) == 1
+
+
+def test_flag_wrong_action_beside_each_fact():
+    v = patient(env()).patient_view()
+    assert v.count(LINES["FL-WRONG-ACTION-PT"]) == 4
+
+
+def test_missing_value_flag_marks_existing_facts():
+    e = env()
+    p = patient(e)
+    p.step("flag", field="allergies", value="latex")
+    assert e.queue[-1]["st"] == LINES["ST-CHANGED"]
+    assert p.card["facts"][0]["flag"] == "patient" and p.card["facts"][0]["value"] == "penicillin"
+    assert p.card["facts"][1].get("flag") is None
