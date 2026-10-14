@@ -54,6 +54,8 @@ def main(argv):
                 problems.append(f"{p.relative_to(ROOT)}:{text.count(chr(10), 0, m.start()) + 1}: internal name or path")
     if subprocess.run([sys.executable, "scripts/rulecheck.py"], cwd=ROOT).returncode:
         problems.append("rulecheck failed")
+    if not paths.wording_dirs():
+        problems.append("WORDING_DIRS not set: the signing files can't be checked")
     env = dict(os.environ, CARDS_SIGNED=str(pathlib.Path(argv[1]).resolve()),
                REUSED_SIGNED=str(pathlib.Path(argv[2]).resolve()))
     r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"], cwd=ROOT,
