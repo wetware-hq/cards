@@ -23,3 +23,14 @@ def traces_set():
 def signed_set():
     """True only when both signed files (cards and the file its reused lines come from) are set."""
     return root("CARDS_SIGNED") is not None and root("REUSED_SIGNED") is not None
+
+
+def wording_dirs():
+    """The folders holding the signing files (read-only): WORDING_DIRS (os.pathsep-separated) or wording_dirs in
+    local.toml. Empty when unset."""
+    r = os.environ.get("WORDING_DIRS")
+    if r:
+        return [pathlib.Path(x) for x in r.split(os.pathsep) if x]
+    if LOCAL.is_file():
+        return [pathlib.Path(x) for x in tomllib.loads(LOCAL.read_text()).get("wording_dirs", [])]
+    return []

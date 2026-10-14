@@ -91,3 +91,20 @@ def test_reused_lines_match_their_signed_source_exactly():
     for k in sync_wording.REUSED:
         assert k not in own_ids, f"{k}: two signed sources"           # one signed source per line
         assert k in rows and LINES[k] == rows[k], k                   # word for word, from the source
+
+
+@pytest.mark.needs_signed
+def test_no_line_id_signed_in_more_than_one_file():
+    import paths, signing
+    assert signing.duplicates(paths.wording_dirs()) == {}       # one signed source per line id
+
+
+@pytest.mark.needs_signed
+def test_signing_file_row_counts_match_committed_numbers():
+    import tomllib, paths
+    want = tomllib.loads((ROOT / "signed_counts.toml").read_text())
+    got = len(sync_wording.signed_ids(paths.root("CARDS_SIGNED").read_text()))
+    assert got == want["cards_lines_SIGNED"], f"row count read off the file: {got}"
+    src = paths.root("REUSED_SIGNED").read_text()
+    have = [k for k in sync_wording.REUSED if re.search(rf"^\| {re.escape(k)} \|", src, re.M)]
+    assert len(sync_wording.REUSED) == len(have) == want["reused_from_forms_orders"]

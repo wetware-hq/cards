@@ -23,7 +23,7 @@ def pytest_collection_modifyitems(config, items):
         drop = [i for i in items if i.get_closest_marker(NEEDS_TRUTH)]
         items[:] = [i for i in items if not i.get_closest_marker(NEEDS_TRUTH)]
         config.hook.pytest_deselected(items=drop)
-    if not paths.signed_set():
+    if not paths.signed_set() or not paths.wording_dirs():
         drop = [i for i in items if i.get_closest_marker(NEEDS_SIGNED)]
         items[:] = [i for i in items if not i.get_closest_marker(NEEDS_SIGNED)]
         config.hook.pytest_deselected(items=drop)
