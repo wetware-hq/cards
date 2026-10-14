@@ -60,7 +60,7 @@ class Handle:
         self.actor, self.role, self.patient = inner.actor, inner.role, inner.patient
 
     def _gate(self, action_type):
-        if self._s.ended or self._s.card is None:
+        if self._s.card is None:
             raise cards.Refused("RF-SESSION-ENDED", msg("RF-SESSION-ENDED"))
         if self._kind == "provider" and self._s.actor == "agent" and action_type in STEP_SIGN:
             line = cards.SIGN_ONLY[STEP_SIGN[action_type]]

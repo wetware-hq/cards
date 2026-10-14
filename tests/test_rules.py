@@ -550,3 +550,33 @@ def test_missing_value_flag_marks_existing_facts():
     assert e.queue[-1]["st"] == LINES["ST-CHANGED"]
     assert p.card["facts"][0]["flag"] == "patient" and p.card["facts"][0]["value"] == "penicillin"
     assert p.card["facts"][1].get("flag") is None
+
+
+def test_end_unopened_session_is_quiet():
+    e = env()
+    s = e.session("agent", "SYNTH-AG-0001", "SYNTH-GR-0001")
+    s.end()
+    assert e.log == [] and s.ended is True
+    refused("RF-SESSION-ENDED", e.session("patient", "SYNTH-P0101").patient_view)
+
+
+def test_actions_return_done():
+    e = env()
+    p = patient(e)
+    assert p.step("decline", question="q1") is True
+    assert p.step("revoke", grant_id="SYNTH-GR-0002") is True
+
+
+def test_source_label_follows_each_fact():
+    v = patient(env()).patient_view()
+    assert v[v.index("synthmed a") + 1] == LINES["SRC-PATIENT-PT"]
+    assert v[v.index("penicillin") + 1] == LINES["SRC-CLINICIAN-PT"]
+    assert LINES["FL-WRONG-MARK-CLIN-PT"] not in v and LINES["FL-WRONG-MARK-PT"] not in v
+
+
+def test_flag_entry_shows_its_route_line():
+    e = env()
+    p = patient(e)
+    assert LINES["PV-BEFORE-PROC"] not in p.patient_view()
+    p.step("flag", field="allergies")
+    assert p.patient_view().count(LINES["PV-BEFORE-PROC"]) == 1
