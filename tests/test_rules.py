@@ -345,7 +345,7 @@ def test_flag_goes_to_items_own_route():
     assert p.step("flag", field="allergies") == LINES["FL-WRONG-DONE-PT"]
     q = e.queue[-1]
     assert q["route"] == "before_procedure" and q["status"] == "open" and q["st"] is None
-    assert q["line"] == msg("CQ-FACT-FLAGGED", label=LINES["FD-ALLERGIES-CLIN"], value="penicillin")
+    assert q["line"] == msg("CQ-FACT-FLAGGED", label=LINES["FD-ALLERGIES-CLIN"], record_id="SYNTH-REC-0001")
     v = p.step("view")
     assert v.count(LINES["FL-WRONG-MARK-PT"]) == 1 and "penicillin" in v
     p.step("flag", field="problems", value="low_mood")
@@ -369,6 +369,7 @@ def test_missing_allergy_flag_shows_changed():
     p.step("flag", field="allergies", value="latex")
     q = e.queue[-1]
     assert q["st"] == LINES["ST-CHANGED"] and q["route"] == "before_procedure"
+    assert q["line"] == msg("CQ-FACT-FLAGGED", label=LINES["FD-ALLERGIES-CLIN"], record_id="ERR:no_record")
     refused("RF-FREE-TEXT", p.step, "flag", field="allergies", value="my cat")
 
 
@@ -548,6 +549,7 @@ def test_missing_value_flag_marks_existing_facts():
     p = patient(e)
     p.step("flag", field="allergies", value="latex")
     assert e.queue[-1]["st"] == LINES["ST-CHANGED"]
+    assert e.queue[-1]["line"] == msg("CQ-FACT-FLAGGED", label=LINES["FD-ALLERGIES-CLIN"], record_id="SYNTH-REC-0001")
     assert p.card["facts"][0]["flag"] == "patient" and p.card["facts"][0]["value"] == "penicillin"
     assert p.card["facts"][1].get("flag") is None
 

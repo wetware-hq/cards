@@ -356,8 +356,10 @@ class Session:
             f = {"field": field, "value": value}
             st, val = msg("ST-CHANGED"), value
         label = msg(f"FD-{LABEL[field]}-CLIN")
+        recs = [x["source_record"] for x in ([f] if "source_record" in f else same)]
+        rec = recs[0] if recs else code("no_record")
         e = {"id": len(self.env.queue) + 1, "episode": ep, "route": route(f), "kind": "flag", "field": field,
-             "status": "open", "line": msg("CQ-FACT-FLAGGED", label=label, value=val), "st": st, "at": self.env.now}
+             "status": "open", "line": msg("CQ-FACT-FLAGGED", label=label, record_id=rec), "st": st, "at": self.env.now}
         self.env.queue.append(e)
         self.env.emit(ep, "flagged", entry=e["id"])
         return msg("FL-WRONG-DONE-PT")

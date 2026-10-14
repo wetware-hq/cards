@@ -11,7 +11,7 @@ PENDING = {}
 SLOT = re.compile(r"\[([^\]]+)\]")
 KEY = {"field label": "label", "date": "date", "source": "source", "discipline": "discipline",
        "registration body": "body", "registration status": "status", "agent_name": "agent_name",
-       "person_name": "person_name", "value": "value", "REL-*-PT": "rel", "REL-*-CLIN": "rel"}
+       "person_name": "person_name", "value": "value", "record_id": "record_id", "REL-*-PT": "rel", "REL-*-CLIN": "rel"}
 
 
 def msg(line_id, **f):
