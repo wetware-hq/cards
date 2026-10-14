@@ -10,7 +10,11 @@ import pathlib, re, subprocess, sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 import sync_wording
+sys.path.insert(0, str(ROOT))
+import paths
+from messages import msg
 
+ANSWER = re.compile(r"C\d\d\.toml(\.bak\d*)?")
 FORBIDDEN = [re.compile(p) for p in (r"\bB" + r"IO\b", r"/work" + r"space\b", r"\bheld" + r"out\d", r"patient-" + r"store")]
 
 
@@ -23,7 +27,14 @@ def main(argv):
     if len(argv) != 3:
         print(__doc__, file=sys.stderr)
         return 2
+    if not paths.traces_set():                   # the safety bar can't pass without the traces
+        print(msg("RUN-TRACES-NOT-RUN"))
+        return 1
     problems = []
+    truth = {p.name for p in paths.root("CARDS_TRUTH").iterdir()} | {"patient_wording.md"}
+    for p in tracked():
+        if p.name in truth or ANSWER.fullmatch(p.name):
+            problems.append(f"{p.relative_to(ROOT)}: answer file in the commit")
     try:
         want = sync_wording.render(pathlib.Path(argv[1]).read_text(), pathlib.Path(argv[2]).read_text())
         if (ROOT / "WORDING.md").read_text() != want:
@@ -40,8 +51,13 @@ def main(argv):
                 problems.append(f"{p.relative_to(ROOT)}:{text.count(chr(10), 0, m.start()) + 1}: internal name or path")
     if subprocess.run([sys.executable, "scripts/rulecheck.py"], cwd=ROOT).returncode:
         problems.append("rulecheck failed")
-    if subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"], cwd=ROOT).returncode:
+    r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"], cwd=ROOT,
+                       capture_output=True, text=True)
+    print(r.stdout[-2000:])
+    if r.returncode:
         problems.append("tests failed")
+    if re.search(r"\d+ (skipped|deselected|xfailed)", r.stdout) or msg("RUN-TRACES-NOT-RUN") in r.stdout:
+        problems.append("tests skipped or traces not run")
     for x in problems:
         print(x)
     print(f"prepush: {len(problems)} problems")

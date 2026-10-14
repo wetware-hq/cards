@@ -4,3 +4,4 @@
 /.last_monitor_run
 __pycache__/
 .pytest_cache/
+/local.toml

@@ -4,6 +4,7 @@ answer file ($CARDS_TRUTH/<id>.toml) and the patient wording file ($CARDS_WORDIN
 With no answer file the trace is BLOCKED-NO-TRUTH; ids in PENDING_RULING are run and reported but never scored."""
 import os, pathlib, re, tomllib
 import cards
+import paths
 from messages import LINES
 
 EX = pathlib.Path(__file__).resolve().parent / "examples"
@@ -188,9 +189,13 @@ def c15(r):
     allergy = [x for x in p.card["facts"] if x["field"] == "allergies"]
     r.extra.update(alert_route=q["route"], new_fact_created=f["value"] == "latex",
                    new_fact_source=src[f["source"]], new_fact_has_new_record_id=f["source_record"] not in _BASE_RECORDS,
-                   new_fact_counts_as_confirmed=q["st"] == "ST-CONFIRMED",
+                   new_fact_counts_as_confirmed=f["source"] == "patient" and f["value"] in (cards.allergies_in_effect(p.card) or []),
+                   item_id=q["item"],
+                   new_fact_used_immediately_in_allergy_checks="latex" in (cards.allergies_in_effect(p.card) or []),
+                   old_none_clears_allergy_check=cards.allergies_in_effect(p.card) in ([], None),
                    patient_view_must_not_show=[k for k in ("VAL-NONE-ALLERGY-PT",) if seen(r.view, k)] or None,
-                   clinician_view_record_ids_named=len({e["record"] for e in r.env.queue if e.get("record")}),
+                   clinician_view_record_ids_named=len({x for e in r.env.queue for x in (e.get("record"), e.get("old_record"))
+                                                        if x and x in e["line"]}),
                    old_none_record_dropped=not any(x["value"] == "none" for x in allergy),
                    err_string_in_queue_notes_letters=sum(x.count("ERR:") for x in
                                                          [e["line"] for e in r.env.queue] + [repr(y) for y in r.env.log]))
@@ -324,8 +329,7 @@ def wording_diffs(got, text):
 
 
 def _root(var, root):
-    root = root or os.environ.get(var)
-    return pathlib.Path(root) if root else None
+    return paths.root(var, root)
 
 
 def score(cid, root=None, wording_root=None):
@@ -334,8 +338,10 @@ def score(cid, root=None, wording_root=None):
     tp = t / f"{cid}.toml" if t else None
     wp = w / cid / "patient_wording.md" if w else None
     got = run(cid)
-    if tp is None or not tp.is_file():
-        return BLOCKED, {}
+    if tp is None:
+        return BLOCKED, {}                       # setting absent: not run, never a pass
+    if not tp.is_file() or wp is None or not wp.is_file():
+        return "FAIL", {"answer_file_missing": cid}   # setting present: a missing file fails, never skips
     if cid in PENDING_RULING:
         return PENDING, {}
     truth, wording = tomllib.loads(tp.read_text()), wp.read_text() if wp and wp.is_file() else None
