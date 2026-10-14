@@ -54,3 +54,13 @@ categories = ["general"]
 granted = "1937-01-05"
 rel = "sdm"
 person_name = "J. Corrow"
+
+[[grant_event]]
+grant_id = "SYNTH-GR-0001"
+event = "granted"
+at = "1937-01-05"
+
+[[grant_event]]
+grant_id = "SYNTH-GR-0002"
+event = "granted"
+at = "1937-01-05"
