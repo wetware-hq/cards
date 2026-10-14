@@ -1,0 +1,56 @@
+# Synthetic patient card (invented person, 1930s dates).
+[header]
+card_id = "SYNTH-CARD-0101"
+kind = "patient"
+display_name = "R. Tamsin"
+person_name = "R. Tamsin"
+role = "patient"
+scope = ["read", "check", "draft"]
+issued = "1937-01-04"
+expires = "1937-12-31"
+episode_id = "SYNTH-EP-0101"
+
+[[fact]]
+field = "allergies"
+value = "penicillin"
+source = "clinician"
+source_record = "SYNTH-REC-0001"
+recorded = "1937-01-04"
+
+[[fact]]
+field = "medicines"
+value = "synthmed_a"
+source = "patient"
+source_record = "SYNTH-REC-0002"
+recorded = "1937-01-04"
+
+[[fact]]
+field = "problems"
+value = "low_mood"
+source = "clinician"
+source_record = "SYNTH-REC-0003"
+recorded = "1937-01-04"
+
+[[fact]]
+field = "preferences"
+value = "home_care"
+source = "on_behalf"
+rel = "sdm"
+source_record = "SYNTH-REC-0004"
+recorded = "1937-01-04"
+
+[[grant]]
+grant_id = "SYNTH-GR-0001"
+agent_id = "SYNTH-AG-0001"
+agent_name = "Helper"
+categories = ["general"]
+granted = "1937-01-05"
+
+[[grant]]
+grant_id = "SYNTH-GR-0002"
+agent_id = "SYNTH-AG-0002"
+agent_name = "Proxy"
+categories = ["general"]
+granted = "1937-01-05"
+rel = "sdm"
+person_name = "J. Corrow"

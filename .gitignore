@@ -1,0 +1,6 @@
+# Runtime data written by other tools in this folder: never tracked.
+/live/
+/erase-log.txt
+/.last_monitor_run
+__pycache__/
+.pytest_cache/

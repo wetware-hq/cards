@@ -1,0 +1,14 @@
+# Synthetic provider card (invented person, 1930s dates). Registration is verified by the environment, not here.
+[header]
+card_id = "SYNTH-CARD-0201"
+kind = "provider"
+display_name = "D. Arlen"
+person_name = "D. Arlen"
+role = "clinician"
+scope = ["read", "check", "draft"]
+issued = "1937-01-04"
+expires = "1937-12-31"
+episode_id = "SYNTH-EP-0101"
+discipline = "medicine"
+team = "ward"
+registration_id = "SYNTH-REG-0001"
