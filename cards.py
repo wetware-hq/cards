@@ -16,6 +16,7 @@ DISCIPLINES = {"medicine", "nursing", "pharmacy", "physiotherapy", "psychology"}
 TEAMS = {"ward", "clinic", "community"}
 SOURCES = {"patient", "clinician", "on_behalf"}
 RELS = {"parent", "guardian", "sdm"}
+GRANT_EVENTS = ("granted", "revoked", "expired")   # append-only grant history, scenario clock only
 CATEGORIES = {"general", "mental_health", "sexual_health"}
 VALUES = {"allergies": {"penicillin", "peanut", "latex", "none"},
           "medicines": {"synthmed_a", "synthmed_b", "none"},
@@ -73,7 +74,7 @@ def load(text):
         raw = tomllib.loads(text)
     except tomllib.TOMLDecodeError:
         raise _free("card")
-    _keys("card", raw, ("header",), ("fact", "grant"))
+    _keys("card", raw, ("header",), ("fact", "grant", "grant_event"))
     h = raw["header"]
     kind = h.get("kind") if isinstance(h, dict) else None
     _typed("kind", kind, allowed=KINDS)
@@ -124,7 +125,36 @@ def load(text):
         if "rel" in g:
             _typed("rel", g["rel"], allowed=RELS)
             _typed("person_name", g["person_name"], NAME)
-    return {"header": dict(h), "facts": [dict(f) for f in facts], "grants": {g["grant_id"]: dict(g) for g in grants}}
+    events = raw.get("grant_event", [])
+    ids, state, last = {g["grant_id"]: g for g in grants}, {}, None
+    for ev in events:                                    # append-only: in scenario-time order, granted first, nothing after an end
+        _keys("grant_event", ev, ("grant_id", "event", "at"))
+        _typed("grant_id", ev["grant_id"], ID["grant_id"])
+        _typed("event", ev["event"], allowed=set(GRANT_EVENTS))
+        _typed("at", ev["at"], DATE)
+        g, prev = ids.get(ev["grant_id"]), state.get(ev["grant_id"])
+        if g is None or (last is not None and ev["at"] < last) or (ev["event"] == "granted") != (prev is None) \
+                or prev in ("revoked", "expired") or (ev["event"] == "granted" and ev["at"] != g["granted"]):
+            raise _free("grant_event")
+        state[ev["grant_id"]], last = ev["event"], ev["at"]
+    if set(state) != set(ids):
+        raise _free("grant_event")
+    return {"header": dict(h), "facts": [dict(f) for f in facts], "grants": {g["grant_id"]: dict(g) for g in grants},
+            "grant_events": [dict(e) for e in events]}
+
+
+def grant_state(card, grant_id, now, revoked=None):
+    """The one read path for a grant: current | revoked | expired | unknown at scenario time `now` (never the wall
+    clock). An end at or before `now` counts; a later grant to the same person never revives an ended grant."""
+    if grant_id not in card.get("grants", {}):
+        return "unknown"
+    if revoked and grant_id in revoked and revoked[grant_id] <= now:
+        return "revoked"
+    st = "unknown"
+    for e in card.get("grant_events", []):
+        if e["grant_id"] == grant_id and e["at"] <= now:
+            st = "current" if e["event"] == "granted" else e["event"]
+    return st
 
 
 def header(card):
@@ -195,8 +225,9 @@ class Session:
                 g = card["grants"].get(self.grant_id)
                 if g is None or g["agent_id"] != self.actor_id or ("rel" in g) != (self.actor == "decision_maker"):
                     raise Refused("RF-REVOKED", msg("RF-REVOKED", date=self.env.now))
-                if self.grant_id in self.env.revoked:
-                    raise Refused("RF-REVOKED", msg("RF-REVOKED", date=self.env.revoked[self.grant_id]))
+                if grant_state(card, self.grant_id, self.env.now, self.env.revoked) != "current":
+                    ends = [e["at"] for e in card["grant_events"] if e["grant_id"] == self.grant_id and e["event"] != "granted"]
+                    raise Refused("RF-REVOKED", msg("RF-REVOKED", date=self.env.revoked.get(self.grant_id, (ends or [self.env.now])[0])))
                 self.grant = g
         self.card = card
         self.env.emit(h["episode_id"], "opened", actor=self.actor)
@@ -405,6 +436,8 @@ class Session:
         if grant_id not in self.card["grants"]:
             raise Refused("RF-NOT-YOURS", msg("RF-NOT-YOURS"))
         self.env.revoked[grant_id] = self.env.now
+        if grant_state(self.card, grant_id, self.env.now) == "current":     # appended to the card's history
+            self.card["grant_events"].append({"grant_id": grant_id, "event": "revoked", "at": self.env.now})
         self.env.notices.append(("PV-REVOKE", msg("PV-REVOKE", date=self.env.now)))
         self.env.emit(ep, "CL-REVOKED", grant=grant_id)
         return True
@@ -448,8 +481,8 @@ class Session:
                     out.append(msg("FL-WRONG-MARK-PT"))
                 if f.get("flag") == "clinician":
                     out.append(msg("FL-WRONG-MARK-CLIN-PT"))
-        for g in self.card["grants"].values():
-            if "rel" in g:
+        for gid, g in self.card["grants"].items():           # who acts for the patient now; never grant history
+            if "rel" in g and grant_state(self.card, gid, self.env.now, self.env.revoked) == "current":
                 out += [msg("FD-ACTS-FOR-PT"), msg(f"REL-{g['rel'].upper()}-PT"), g["person_name"]]
         ep_ = self.card["header"]["episode_id"]
         for e in self.env.queue:

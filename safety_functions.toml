@@ -23,6 +23,7 @@ functions = [
     "_typed",
     "_view",
     "emit",
+    "grant_state",
     "load",
     "open",
     "patient_view",

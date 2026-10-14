@@ -11,13 +11,17 @@ PROVIDER_ROLES = {"clinician": "clinician", "clinician_agent": "agent"}
 STEP_SIGN = {"approve": "approve", "review": "close", "set_alert_route": "set_route", "sign": "sign_letter"}
 
 
-def toml_card(header, facts=(), grants=()):
-    """Write a card from typed values (dicts of str / list of str). load() re-checks every value."""
+def toml_card(header, facts=(), grants=(), events=None):
+    """Write a card from typed values (dicts of str / list of str). load() re-checks every value. `events` is the
+    card's append-only grant history (scenario dates); by default one "granted" event per grant."""
     def table(d):
         return "\n".join(f"{k} = {_v(v)}" for k, v in d.items())
     parts = ["[header]", table(header)]
     parts += [x for f in facts for x in ("[[fact]]", table(f))]
     parts += [x for g in grants for x in ("[[grant]]", table(g))]
+    if events is None:
+        events = [{"grant_id": g["grant_id"], "event": "granted", "at": g["granted"]} for g in grants]
+    parts += [x for e in events for x in ("[[grant_event]]", table(e))]
     return "\n".join(parts) + "\n"
 
 
