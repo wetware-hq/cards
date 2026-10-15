@@ -3,11 +3,11 @@ CARDS_CLOCK=test -> the scenario clock (the date the scenario supplies, else CAR
 CARDS_CLOCK=real -> the real clock. Anything else refuses with RF-CLOCK-UNSET (staff-only; signed text)."""
 import os
 from datetime import date
+from messages import msg                 # module level: a lazy import fails under stack's loader
 
 
 class ClockUnset(Exception):
     def __init__(self):
-        from messages import msg
         self.line_id, self.text = "RF-CLOCK-UNSET", msg("RF-CLOCK-UNSET")
         super().__init__(self.line_id)
 
