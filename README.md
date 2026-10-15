@@ -20,3 +20,6 @@ python3 scripts/mutate.py cards.py FUNCS sleeve.py FUNCS   # mutation testing, n
 python3 scripts/sync_wording.py CARDS_SIGNED.md REUSED_SIGNED.md
 python3 scripts/prepush.py CARDS_SIGNED.md REUSED_SIGNED.md # also the pre-push hook
 ```
+
+- Not for use with real patients.
+- S05 and S07 were checked with a scripted stand-in, not a real AI model. The scripted runs show the checks catch the mistakes those two scenarios are for. They don't show how a real model behaves. Those tests are still to come.
