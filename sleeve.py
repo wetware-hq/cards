@@ -1,13 +1,14 @@
 """Card sleeve for a harness that hands out actor sessions (session(actor, role, patient, discipline, scope) ->
 handle with observe/step/call). Each actor is loaded into one card first (simulated login): a patient card for
-patient and patient_agent, a provider card for clinician and clinician_agent. The wrapped environment stays the
+patient and patient_agent, a provider card for clinician, clinician_agent and provider_agent. The wrapped environment stays the
 authority on grants, answers and safety; the sleeve adds identity, one-card-per-session, session end, and the
 background-only rule for agents under a provider card. It never changes a call that it lets through."""
 import cards
 from messages import msg
 
 PATIENT_ROLES = {"patient": "patient", "patient_agent": "agent"}
-PROVIDER_ROLES = {"clinician": "clinician", "clinician_agent": "agent"}
+PROVIDER_ROLES = {"clinician": "clinician", "clinician_agent": "agent", "provider_agent": "agent"}
+HELD_QUEUES = {"CQ-RESULT-TO-DISCUSS"}   # S14: only an in-person clinician closes these (Physician r2, 15 Oct 2026)
 STEP_SIGN = {"approve": "approve", "review": "close", "set_alert_route": "set_route", "sign": "sign_letter"}
 
 
@@ -63,9 +64,12 @@ class Handle:
         self._inner, self._s, self._kind = inner, card_session, kind
         self.actor, self.role, self.patient = inner.actor, inner.role, inner.patient
 
-    def _gate(self, action_type):
+    def _gate(self, action_type, action=None):
         if self._s.card is None:
             raise cards.Refused("RF-SESSION-ENDED", msg("RF-SESSION-ENDED"))
+        if self._s.actor == "agent" and isinstance(action, dict) and action.get("queue") in HELD_QUEUES \
+                and action_type in ("review", "close", "release"):
+            raise cards.Refused("RF-RESULT-HELD", msg("RF-RESULT-HELD"))
         if self._kind == "provider" and self._s.actor == "agent" and action_type in STEP_SIGN:
             line = cards.SIGN_ONLY[STEP_SIGN[action_type]]
             raise cards.Refused(line, msg(line))
@@ -75,7 +79,7 @@ class Handle:
         return self._inner.observe(episode_id, *a, note=note)
 
     def step(self, episode_id, action, note=None):
-        self._gate(action.get("type") if isinstance(action, dict) else None)
+        self._gate(action.get("type") if isinstance(action, dict) else None, action)
         return self._inner.step(episode_id, action, note=note)
 
     def call(self, episode_id, method, *a):

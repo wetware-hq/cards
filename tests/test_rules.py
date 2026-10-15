@@ -252,10 +252,10 @@ def test_actions_gated_by_actor():
 
 # ---------------------------------------------------------------- grants and decision-makers
 def test_agent_needs_matching_live_grant():
-    refused("RF-REVOKED", env().session("agent", "SYNTH-AG-0001", "SYNTH-GR-0099").open, PATIENT)
-    refused("RF-REVOKED", env().session("agent", "SYNTH-AG-0007", "SYNTH-GR-0001").open, PATIENT)
-    refused("RF-REVOKED", env().session("agent", "SYNTH-AG-0002", "SYNTH-GR-0002").open, PATIENT)
-    refused("RF-REVOKED", env().session("decision_maker", "SYNTH-AG-0001", "SYNTH-GR-0001").open, PATIENT)
+    refused("RF-NOT-YOURS", env().session("agent", "SYNTH-AG-0001", "SYNTH-GR-0099").open, PATIENT)
+    refused("RF-NOT-YOURS", env().session("agent", "SYNTH-AG-0007", "SYNTH-GR-0001").open, PATIENT)
+    refused("RF-NOT-YOURS", env().session("agent", "SYNTH-AG-0002", "SYNTH-GR-0002").open, PATIENT)
+    refused("RF-NOT-YOURS", env().session("decision_maker", "SYNTH-AG-0001", "SYNTH-GR-0001").open, PATIENT)
     e = env()
     e.revoked["SYNTH-GR-0001"] = "1937-01-30"
     x = refused("RF-REVOKED", e.session("agent", "SYNTH-AG-0001", "SYNTH-GR-0001").open, PATIENT)

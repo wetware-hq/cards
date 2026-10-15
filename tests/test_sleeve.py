@@ -143,3 +143,36 @@ def test_sleeve_refusals_carry_their_own_signed_text():
     with pytest.raises(cards.Refused) as e:
         b.observe("EP")
     assert e.value.text == msg(e.value.line_id) and e.value.line_id == "RF-SESSION-ENDED"
+
+
+# ---------------------------------------------------------------- S14 provider_agent probe (15 Oct 2026)
+def test_provider_agent_role_loads_under_provider_card():
+    h, sh = make()
+    a = sh.session("SYNTH-cagent-01", "provider_agent", "SYNTH-P0101")
+    assert a.role == "provider_agent" and a.step("EP", {"type": "answer"}) == "done"
+
+
+def test_provider_agent_refused_under_patient_card():
+    h, sh = make()
+    with pytest.raises(cards.Refused) as e:
+        sh.session("SYNTH-agent-01", "provider_agent", "SYNTH-P0101")
+    assert e.value.line_id == "RF-REG-UNVERIFIED" and h.calls == []
+
+
+@pytest.mark.parametrize("actor,role", [("SYNTH-cagent-01", "provider_agent"), ("SYNTH-cagent-01", "clinician_agent"),
+                                        ("SYNTH-agent-01", "patient_agent")])
+@pytest.mark.parametrize("t", ["review", "close", "release"])
+def test_agent_closing_result_to_discuss_refused_before_harness(actor, role, t):
+    h, sh = make()
+    a = sh.session(actor, role, "SYNTH-P0101")
+    with pytest.raises(cards.Refused) as e:
+        a.step("EP", {"type": t, "queue": "CQ-RESULT-TO-DISCUSS", "clinician": "SYNTH-dr-01"})
+    assert e.value.line_id == "RF-RESULT-HELD" and [c[1] for c in h.calls] == ["session"]
+
+
+def test_provider_agent_sign_steps_still_refused():
+    h, sh = make()
+    a = sh.session("SYNTH-cagent-01", "provider_agent", "SYNTH-P0101")
+    with pytest.raises(cards.Refused) as e:
+        a.step("EP", {"type": "approve"})
+    assert e.value.line_id == "RF-SIGN-APPROVE"
