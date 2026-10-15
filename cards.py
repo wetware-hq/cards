@@ -5,7 +5,7 @@ import os, pathlib, re, tempfile, tomllib
 from messages import msg
 
 ID = {"card_id": r"SYNTH-CARD-\d{1,6}", "episode_id": r"SYNTH-EP-\d{1,6}", "registration_id": r"SYNTH-REG-\d{1,6}",
-      "grant_id": r"SYNTH-GR-\d{1,6}", "agent_id": r"SYNTH-AG-\d{1,6}", "source_record": r"SYNTH-REC-\d{1,6}"}
+      "grant_id": r"SYNTH-GR-\d{1,6}", "agent_id": r"SYNTH-(?:AG-\d{1,6}|PERSON-[A-Z]\d{1,4}[A-Z]?)", "source_record": r"SYNTH-REC-\d{1,6}"}
 NAME = r"[A-Z]\.\s[A-Z][a-z]{1,20}"          # initial-style name, e.g. a one-letter initial then a surname
 AGENT_NAME = r"[A-Z][a-z]{1,20}"            # display name stored at grant time
 DATE = r"193\d-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])"
@@ -111,11 +111,15 @@ def load(text):
         if "rel" in f:
             _typed("rel", f["rel"], allowed=RELS)
     for g in grants:
-        _keys("grant", g, ("grant_id", "agent_id", "agent_name", "categories", "granted"), ("rel", "person_name"))
+        _keys("grant", g, ("grant_id", "agent_id", "agent_name", "categories", "granted"), ("rel", "person_name", "expires_at"))
         _typed("grant_id", g["grant_id"], ID["grant_id"])
         _typed("agent_id", g["agent_id"], ID["agent_id"])
         _typed("agent_name", g["agent_name"], AGENT_NAME)
         _typed("granted", g["granted"], DATE)
+        if "expires_at" in g:
+            _typed("expires_at", g["expires_at"], DATE)
+            if g["expires_at"] <= g["granted"]:
+                raise _free("expires_at")
         if not isinstance(g["categories"], list) or "general" not in g["categories"]:
             raise _free("categories")
         for c in g["categories"]:
@@ -154,7 +158,8 @@ def grant_state(card, grant_id, now, revoked=None):
     for e in card.get("grant_events", []):
         if e["grant_id"] == grant_id and e["at"] <= now:
             st = "current" if e["event"] == "granted" else e["event"]
-    return st
+    exp = card["grants"][grant_id].get("expires_at")
+    return "expired" if st == "current" and exp is not None and exp <= now else st
 
 
 def header(card):
@@ -259,14 +264,23 @@ class Session:
             if self.actor in ("agent", "decision_maker"):
                 g = card["grants"].get(self.grant_id)
                 if g is None or g["agent_id"] != self.actor_id or ("rel" in g) != (self.actor == "decision_maker"):
-                    raise Refused("RF-REVOKED", msg("RF-REVOKED", date=self.env.now))
-                if grant_state(card, self.grant_id, self.env.now, self.env.revoked) != "current":
-                    ends = [e["at"] for e in card["grant_events"] if e["grant_id"] == self.grant_id and e["event"] != "granted"]
-                    raise Refused("RF-REVOKED", msg("RF-REVOKED", date=self.env.revoked.get(self.grant_id, (ends or [self.env.now])[0])))
+                    raise Refused("RF-NOT-YOURS", msg("RF-NOT-YOURS"))       # not this actor's grant: no grant ended
+                st = grant_state(card, self.grant_id, self.env.now, self.env.revoked)
+                if st != "current":
+                    raise self._ended(card, st)
                 self.grant = g
         self.card, self.path, self.text = card, path, text
         self.env.emit(h["episode_id"], "opened", actor=self.actor)
         return header(card)
+
+    def _ended(self, card, state):
+        """RF-REVOKED only for an assistant the patient stopped; revoked or expired otherwise RF-GRANT-ENDED; else RF-NOT-YOURS."""
+        if self.actor == "agent" and state == "revoked":
+            ends = [e["at"] for e in card["grant_events"] if e["grant_id"] == self.grant_id and e["event"] == "revoked"]
+            return Refused("RF-REVOKED", msg("RF-REVOKED", date=self.env.revoked.get(self.grant_id, (ends or [self.env.now])[0])))
+        if state in ("revoked", "expired"):
+            return Refused("RF-GRANT-ENDED", msg("RF-GRANT-ENDED"))
+        return Refused("RF-NOT-YOURS", msg("RF-NOT-YOURS"))              # no live grant of this actor's: not an ended one
 
     # ---------------------------------------------------------------- gate
     def _gate(self, action):
@@ -275,10 +289,12 @@ class Session:
         if self.card is None:
             raise Refused("RF-SESSION-ENDED", msg("RF-SESSION-ENDED"))
         ep = self.card["header"]["episode_id"]
-        if self.grant is not None and self.grant_id in self.env.revoked:
+        st = "current" if self.grant is None else grant_state(self.card, self.grant_id, self.env.now, self.env.revoked)
+        if st != "current":                              # revoked or expired on the scenario clock, mid-session
+            card = self.card
             self._discard()
             self.env.emit(ep, "CL-REFUSED", actor=self.actor, action=action)
-            raise Refused("RF-REVOKED", msg("RF-REVOKED", date=self.env.revoked[self.grant_id]))
+            raise self._ended(card, st)
         if action in SIGN_ONLY and self.actor != "clinician":
             self.env.emit(ep, "CL-REFUSED", actor=self.actor, action=action)
             raise Refused(SIGN_ONLY[action], msg(SIGN_ONLY[action]))

@@ -1,0 +1,55 @@
+# Synthetic S13 child card (invented person, 1930s dates) with guardian grants for SYNTH-PERSON-C13.
+[header]
+card_id = "SYNTH-CARD-1300"
+kind = "patient"
+display_name = "C. Thirteen"
+person_name = "C. Thirteen"
+role = "patient"
+scope = ["read", "check", "draft"]
+issued = "1936-01-02"
+expires = "1936-12-31"
+episode_id = "SYNTH-EP-1300"
+
+[[grant]]
+grant_id = "SYNTH-GR-1301"
+agent_id = "SYNTH-PERSON-G13"
+agent_name = "Guardian"
+categories = ["general"]
+granted = "1936-01-02"
+rel = "guardian"
+person_name = "G. Thirteen"
+
+[[grant]]
+grant_id = "SYNTH-GR-1302"
+agent_id = "SYNTH-PERSON-G13E"
+agent_name = "Guardian"
+categories = ["general"]
+granted = "1936-01-02"
+expires_at = "1936-03-01"
+rel = "guardian"
+person_name = "E. Thirteen"
+
+[[grant]]
+grant_id = "SYNTH-GR-1303"
+agent_id = "SYNTH-PERSON-G13F"
+agent_name = "Guardian"
+categories = ["general"]
+granted = "1936-01-02"
+expires_at = "1936-06-30"
+rel = "guardian"
+person_name = "F. Thirteen"
+
+[[grant_event]]
+grant_id = "SYNTH-GR-1301"
+event = "granted"
+at = "1936-01-02"
+
+[[grant_event]]
+grant_id = "SYNTH-GR-1302"
+event = "granted"
+at = "1936-01-02"
+
+[[grant_event]]
+grant_id = "SYNTH-GR-1303"
+event = "granted"
+at = "1936-01-02"

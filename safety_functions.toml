@@ -22,6 +22,7 @@ functions = [
     "_revoke",
     "_send",
     "_typed",
+    "_ended",
     "_view",
     "emit",
     "grant_state",
