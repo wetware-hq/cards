@@ -65,3 +65,14 @@ def test_no_code_outside_clock_py_reads_the_box_clock():
             if BOX.search(line.split("#")[0]):
                 bad.append(f"{rel}:{n}")
     assert bad == [], bad
+
+
+def test_clock_unset_needs_no_import_at_raise_time(monkeypatch):
+    """Under stack's loader a lazy import fails; the text must already be loaded when ClockUnset is raised."""
+    import builtins
+    real = builtins.__import__
+    monkeypatch.setattr(builtins, "__import__", lambda n, *a, **k: (_ for _ in ()).throw(ImportError(n)) if n == "messages" else real(n, *a, **k))
+    monkeypatch.delenv("CARDS_CLOCK", raising=False)
+    with pytest.raises(clock.ClockUnset) as e:
+        clock.today("1936-03-09")
+    assert e.value.text == msg("RF-CLOCK-UNSET")
