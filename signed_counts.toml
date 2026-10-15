@@ -1,4 +1,4 @@
 # Row counts read off the signing files, committed so a changed file is noticed (room ruling 15 Oct 09:51).
 # Change only together with a re-sign and a WORDING.md sync.
 cards_lines_SIGNED = 50
-reused_from_forms_orders = 27
+reused_from_forms_orders = 28

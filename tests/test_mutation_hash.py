@@ -7,7 +7,7 @@ import mutation_hash  # noqa: E402
 
 
 def _copy(tmp_path):
-    for f in ("safety_functions.toml", "cards.py", "sleeve.py"):
+    for f in ("safety_functions.toml", "cards.py", "sleeve.py", "clock.py"):
         shutil.copy(ROOT / f, tmp_path / f)
     mutation_hash.record(tmp_path)
     return tmp_path

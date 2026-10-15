@@ -1,6 +1,7 @@
 """Seeded shuffle of test order: set TEST_SEED to an int to shuffle (standard library only). Without the answer-file
 setting the trace tests are not run and RUN-TRACES-NOT-RUN is printed; that run never counts as a pass of the bar."""
 import os, pathlib, random, sys
+import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 import paths  # noqa: E402
@@ -32,3 +33,12 @@ def pytest_collection_modifyitems(config, items):
 def pytest_terminal_summary(terminalreporter):
     if not paths.traces_set():
         terminalreporter.write_line(msg("RUN-TRACES-NOT-RUN"))
+
+
+@pytest.fixture(autouse=True)
+def _scenario_clock():
+    """Every cards test runs on an explicit clock: test mode (tests of the unset or real modes change it).
+    Its own MonkeyPatch, so a test calling monkeypatch.undo() keeps the explicit clock."""
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("CARDS_CLOCK", "test")
+        yield
