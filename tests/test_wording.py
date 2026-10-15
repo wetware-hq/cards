@@ -120,3 +120,11 @@ def test_header_count_check_fails_on_a_wrong_header(tmp_path):
     r = subprocess.run([sys.executable, str(ROOT / "scripts" / "signed_header_count.py"), str(bad)],
                        capture_output=True, text=True)
     assert r.returncode == 1 and "header says 3 lines, 2 rows parsed" in r.stdout
+
+
+@pytest.mark.needs_signed
+def test_every_signing_file_states_its_true_line_count():
+    import paths, signing, signed_header_count
+    files = [f for d in paths.wording_dirs() for f in sorted(d.iterdir())
+             if signing.FILE.match(f.name) and "DRAFT" not in f.name and "RETIRED" not in f.name]
+    assert files and [p for f in files for p in signed_header_count.problems(f.read_text(), f.name)] == []
