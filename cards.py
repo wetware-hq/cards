@@ -1,6 +1,7 @@
 """Identity cards for patients and providers. An agent loads one card per session (simulated login) and does
 background work for that person. The card is typed TOML: every field has a fixed type and values from fixed lists;
 free text is refused. Facts are references to source records, never copies. Synthetic data only."""
+import clock
 import os, pathlib, re, tempfile, tomllib
 from messages import msg
 
@@ -216,9 +217,17 @@ class Env:
     def __init__(self, registry=None, records=None, now="1937-03-01"):
         self.registry = dict(registry or {})
         self.records = dict(records or {})
-        self.now = now
+        self.scenario = now                              # the scenario date; read only through the approved clock
         self.queue, self.sent, self.log, self.notices = [], [], [], []
         self.revoked = {}
+
+    @property
+    def now(self):
+        return clock.today(self.scenario)                # test: scenario clock; real: real clock; unset: refuses
+
+    @now.setter
+    def now(self, value):
+        self.scenario = value
 
     def emit(self, episode, event, **f):
         self.log.append(dict(episode=episode, event=event, at=self.now, **f))

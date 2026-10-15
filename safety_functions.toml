@@ -3,6 +3,10 @@
 line_tables = ["SIGN_ONLY", "ALERT_LINE", "PATIENT_ROUTE_LINE"]
 
 [[modules]]
+path = "clock.py"
+functions = ["__init__", "today"]
+
+[[modules]]
 path = "cards.py"
 functions = [
     "__init__",
@@ -27,6 +31,7 @@ functions = [
     "emit",
     "grant_state",
     "load",
+    "now",
     "open",
     "patient_view",
     "provider_view",
