@@ -108,3 +108,15 @@ def test_signing_file_row_counts_match_committed_numbers():
     src = paths.root("REUSED_SIGNED").read_text()
     have = [k for k in sync_wording.REUSED if re.search(rf"^\| {re.escape(k)} \|", src, re.M)]
     assert len(sync_wording.REUSED) == len(have) == want["reused_from_forms_orders"]
+
+
+def test_header_count_check_fails_on_a_wrong_header(tmp_path):
+    import signed_header_count                       # scripts/signed_header_count.py, standalone
+    text = ("# Lines (SIGNED by Physician, 2 lines)\n| id | line |\n|---|---|\n| PV-A | a |\n| PV-B | b |\n")
+    assert signed_header_count.problems(text) == []
+    bad = tmp_path / "x_SIGNED.md"                   # a temp copy with a wrong header
+    bad.write_text(text.replace("2 lines", "3 lines"))
+    assert signed_header_count.problems(bad.read_text(), bad.name) == ["x_SIGNED.md: header says 3 lines, 2 rows parsed"]
+    r = subprocess.run([sys.executable, str(ROOT / "scripts" / "signed_header_count.py"), str(bad)],
+                       capture_output=True, text=True)
+    assert r.returncode == 1 and "header says 3 lines, 2 rows parsed" in r.stdout
