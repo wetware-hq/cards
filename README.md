@@ -1,8 +1,31 @@
 # cards
 
-Identity cards for patients and providers. An agent loads one card per session (a simulated login) to do
-background work for that person. Synthetic data only (`SYNTH-` ids, 1930s dates, invented people). Not a medical
-device and not approved for real patient data.
+**Overview.** cards gives each AI agent one typed identity card per session, a simulated login for one patient or provider, so it can do background work for that person and nothing else. Synthetic data only (`SYNTH-` ids, 1930s dates, invented people). Not a medical device and not approved for real patient data.
+
+---
+
+## Clinical abstract
+
+When an assistant works for a patient or a clinician, the questions are: whose behalf is it acting on, what may it see, and where did each fact come from. A free-text summary answers none of these, and it can quietly carry a wrong allergy or a sensitive diagnosis to someone who should not see it.
+
+A card holds only typed fields from fixed lists (allergies, medicines, problems, preferences), each one pointing to the source record it came from, never a copy. A patient grants an assistant access to named categories; mental-health and sexual-health items stay hidden unless granted. Stale or unverified facts are flagged. Anything the assistant drafts and does not finish is dropped, never sent, and the patient is told once. Safety items are routed to a clinician (before a procedure, or the same day).
+
+What cards is not: it does not hold a medical record, give advice or decide anything clinical. Every line a person sees comes from signed wording.
+
+---
+
+## Engineering specification
+
+### Environment
+
+| Setting | Meaning |
+|---|---|
+| `CARDS_TRUTH` | frozen answer files `<id>/truth.toml` for traces C01-C14 |
+| `CARDS_WORDING`, `CARDS_SIGNED`, `WORDING_DIRS`, `REUSED_SIGNED` | signed wording sources (read-only) |
+| `CARDS_CLOCK`, `CARDS_SCENARIO_CLOCK` | fixed clocks for tests |
+| `TEST_SEED`, `MUTATE_WORKERS` | test order, mutation workers |
+
+### Components
 
 - `cards.py`: typed TOML cards, the environment (verified registrations, source records, clinician queue, outbox,
   episode log) and sessions. Free text is refused; facts are references to source records; the agent header is
